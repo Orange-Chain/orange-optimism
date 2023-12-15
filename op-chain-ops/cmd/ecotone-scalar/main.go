@@ -27,7 +27,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	encoded := eth.EncodeScalar(eth.EcostoneScalars{
+	encoded := eth.EncodeScalar(eth.EcotoneScalars{
 		BlobBaseFeeScalar: uint32(blobScalar),
 		BaseFeeScalar:     uint32(scalar),
 	})
