@@ -44,6 +44,7 @@ struct L1Dependencies {
 enum OutputMode {
     DEFAULT_LATEST,
     LOCAL_LATEST,
+    LOCAL_ECOTONE,
     LOCAL_DELTA,
     OUTPUT_ALL
 }
@@ -159,6 +160,14 @@ contract L2Genesis is Deployer {
         }
 
         activateEcotone();
+
+        // Ecotone is activated at this point
+        if (_mode == OutputMode.LOCAL_ECOTONE) {
+            return;
+        }
+
+        activateFjord();
+
         if (_mode == OutputMode.OUTPUT_ALL || _mode == OutputMode.DEFAULT_LATEST) {
             writeGenesisAllocs(Config.stateDumpPath(""));
         }
@@ -500,6 +509,12 @@ contract L2Genesis is Deployer {
         vm.startPrank(L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT());
         GasPriceOracle(Predeploys.GAS_PRICE_ORACLE).setEcotone();
         vm.stopPrank();
+    }
+
+    function activateFjord() public {
+        console.log("Activating fjord in GasPriceOracle contract");
+        vm.prank(L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT());
+        GasPriceOracle(Predeploys.GAS_PRICE_ORACLE).setFjord();
     }
 
     /// @notice Sets the bytecode in state

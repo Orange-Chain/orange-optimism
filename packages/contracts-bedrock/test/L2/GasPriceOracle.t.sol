@@ -7,6 +7,7 @@ import { OutputMode } from "scripts/L2Genesis.s.sol";
 
 // Libraries
 import { Encoding } from "src/libraries/Encoding.sol";
+import { console2 as console } from "forge-std/console2.sol";
 
 contract GasPriceOracle_Test is CommonTest {
     event OverheadUpdated(uint256);
@@ -108,12 +109,20 @@ contract GasPriceOracleBedrock_Test is GasPriceOracle_Test {
         assertEq(success, false);
         assertEq(returndata, hex"");
     }
+
+    /// @dev Tests that Fjord cannot be activated without activating Ecotone
+    function test_setFjord_withoutEcotone_reverts() external {
+        vm.startPrank(depositor);
+        vm.expectRevert("GasPriceOracle: Fjord can only be activated after Ecotone");
+        gasPriceOracle.setFjord();
+        vm.stopPrank();
+    }
 }
 
 contract GasPriceOracleEcotone_Test is GasPriceOracle_Test {
     /// @dev Sets up the test suite.
     function setUp() public virtual override {
-        l2OutputMode = OutputMode.LOCAL_LATEST; // activate ecotone
+        l2OutputMode = OutputMode.LOCAL_ECOTONE; // activate ecotone
         super.setUp();
         assertEq(gasPriceOracle.isEcotone(), true);
 
@@ -195,4 +204,96 @@ contract GasPriceOracleEcotone_Test is GasPriceOracle_Test {
         // gas * (2M*16*20 + 3M*15) / 16M == 48977.5
         assertEq(price, 48977);
     }
+
+    /// @dev Tests that `setFjord` is only callable by the depositor.
+    function test_setFjord_wrongCaller_reverts() external {
+        vm.expectRevert("GasPriceOracle: only the depositor account can set isFjord flag");
+        gasPriceOracle.setFjord();
+    }
 }
+
+contract GasPriceOracleFjordActive_Test is GasPriceOracle_Test {
+    /// @dev Sets up the test suite.
+    function setUp() public virtual override {
+        l2OutputMode = OutputMode.LOCAL_LATEST; // activate fjord
+        super.setUp();
+
+        bytes memory calldataPacked = Encoding.encodeSetL1BlockValuesEcotone(
+            baseFeeScalar, blobBaseFeeScalar, sequenceNumber, timestamp, number, baseFee, blobBaseFee, hash, batcherHash
+        );
+
+        vm.prank(depositor);
+        (bool success,) = address(l1Block).call(calldataPacked);
+        require(success, "Function call failed");
+    }
+
+
+    /// @dev Tests that `setFjord` cannot be called when Fjord is already activate
+    function test_setFjord_whenFjordActive_reverts() external {
+        vm.expectRevert("GasPriceOracle: Fjord already active");
+        vm.prank(depositor);
+        gasPriceOracle.setFjord();
+    }
+
+    /// @dev Tests that `gasPrice` is set correctly.
+    function test_gasPrice_succeeds() external {
+        vm.fee(100);
+        uint256 gasPrice = gasPriceOracle.gasPrice();
+        assertEq(gasPrice, 100);
+    }
+
+    /// @dev Tests that `baseFee` is set correctly.
+    function test_baseFee_succeeds() external {
+        vm.fee(64);
+        uint256 gasPrice = gasPriceOracle.baseFee();
+        assertEq(gasPrice, 64);
+    }
+
+    /// @dev Tests that `overhead` reverts since it was removed in ecotone.
+    function test_overhead_legacyFunction_reverts() external {
+        vm.expectRevert("GasPriceOracle: overhead() is deprecated");
+        gasPriceOracle.overhead();
+    }
+
+    /// @dev Tests that `scalar` reverts since it was removed in ecotone.
+    function test_scalar_legacyFunction_reverts() external {
+        vm.expectRevert("GasPriceOracle: scalar() is deprecated");
+        gasPriceOracle.scalar();
+    }
+
+    /// @dev Tests that `l1BaseFee` is set correctly.
+    function test_l1BaseFee_succeeds() external {
+        assertEq(gasPriceOracle.l1BaseFee(), baseFee);
+    }
+
+    /// @dev Tests that `blobBaseFee` is set correctly.
+    function test_blobBaseFee_succeeds() external {
+        assertEq(gasPriceOracle.blobBaseFee(), blobBaseFee);
+    }
+
+    /// @dev Tests that `baseFeeScalar` is set correctly.
+    function test_baseFeeScalar_succeeds() external {
+        assertEq(gasPriceOracle.baseFeeScalar(), baseFeeScalar);
+    }
+
+    /// @dev Tests that `blobBaseFeeScalar` is set correctly.
+    function test_blobBaseFeeScalar_succeeds() external {
+        assertEq(gasPriceOracle.blobBaseFeeScalar(), blobBaseFeeScalar);
+    }
+
+    /// @dev Tests that `decimals` is set correctly.
+    function test_decimals_succeeds() external {
+        assertEq(gasPriceOracle.decimals(), 6);
+        assertEq(gasPriceOracle.DECIMALS(), 6);
+    }
+
+    /// @dev Tests that `getL1GasUsed` and `getL1Fee` return expected values
+    function test_getL1Fee_succeeds() external {
+        bytes memory data = hex"0000010203"; // fastlzSize: 74
+        uint256 gas = gasPriceOracle.getL1GasUsed(data);
+        assertEq(gas, 1144);
+        uint256 price = gasPriceOracle.getL1Fee(data);
+        assertEq(price, 13231);
+    }
+}
+

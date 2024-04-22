@@ -35,9 +35,9 @@ contract GasPriceOracle is ISemver {
     bool public isFjord;
 
     // Hardcoded values for the Fjord upgrade calculation
-    int32 private constant COST_INTERCEPT = -27_321_890;
-    int32 private constant COST_FASTLZ_COEF = 1_031_462;
-    int32 private constant COST_TX_SIZE_COEF = -88_664;
+    int32 private constant COST_INTERCEPT = -42_585_600;
+    uint32 private constant COST_FASTLZ_COEF = 836_500;
+    uint32 private constant MIN_TRANSCTION_SIZE = 71;
 
     /// @notice Computes the L1 portion of the fee based on the size of the rlp encoded input
     ///         transaction, the current L1 base fee, and the various dynamic parameters.
@@ -64,10 +64,9 @@ contract GasPriceOracle is ISemver {
 
         // txSize / 255 + 16 is the pratical fastlz upper-bound covers %99.99 txs.
         // Add 68 to both size values to account for unsigned tx:
-        int256 flzUpperBound = int256(_unsignedTxSize) + int256(_unsignedTxSize) / 255 + 16 + 68;
-        int256 txSize = int256(_unsignedTxSize) + 68;
+        uint256 flzUpperBound = _unsignedTxSize + _unsignedTxSize / 255 + 16 + 68;
 
-        return _fjordL1Cost(flzUpperBound, txSize);
+        return _fjordL1Cost(flzUpperBound);
     }
 
     /// @notice Set chain to be Ecotone chain (callable by depositor account)
@@ -86,6 +85,7 @@ contract GasPriceOracle is ISemver {
             msg.sender == L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT(),
             "GasPriceOracle: only the depositor account can set isFjord flag"
         );
+        require(isEcotone, "GasPriceOracle: Fjord can only be activated after Ecotone");
         require(isFjord == false, "GasPriceOracle: Fjord already active");
         isFjord = true;
     }
@@ -186,11 +186,10 @@ contract GasPriceOracle is ISemver {
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
     /// @return L1 fee that should be paid for the tx
     function _getL1FeeFjord(bytes memory _data) internal view returns (uint256) {
-        // add 68 to both size values to account for unsigned tx:
+        // add 68 to the size to account for unsigned tx:
         uint256 fastlzSize = LibZip.flzCompress(_data).length + 68;
-        uint256 txSize = _data.length + 68;
 
-        return _fjordL1Cost(int256(fastlzSize), int256(txSize));
+        return _fjordL1Cost(fastlzSize);
     }
 
     /// @notice L1 gas estimation calculation.
@@ -211,16 +210,16 @@ contract GasPriceOracle is ISemver {
 
     /// @notice Fjord L1 cost based on the compressed and original tx size.
     /// @param _fastlzSize fastlz compressed tx size.
-    /// @param _txSize original tx size.
     /// @return Fjord L1 fee that should be paid for the tx
-    function _fjordL1Cost(int256 _fastlzSize, int256 _txSize) internal view returns (uint256) {
+    function _fjordL1Cost(uint256 _fastlzSize) internal view returns (uint256) {
         uint256 feeScaled = baseFeeScalar() * 16 * l1BaseFee() + blobBaseFeeScalar() * blobBaseFee();
 
-        int256 cost = COST_INTERCEPT + COST_FASTLZ_COEF * _fastlzSize + COST_TX_SIZE_COEF * _txSize;
-        if (cost < 0) {
-            cost = 0;
+        if (_fastlzSize < MIN_TRANSCTION_SIZE) {
+            _fastlzSize = MIN_TRANSCTION_SIZE;
         }
 
+        // Due to the minimum fastlz size check, it's not possible for cost to be a negative number
+        int256 cost = COST_INTERCEPT + int256(COST_FASTLZ_COEF * _fastlzSize);
         return uint256(cost) * feeScaled / (10 ** (DECIMALS * 2));
     }
 }
