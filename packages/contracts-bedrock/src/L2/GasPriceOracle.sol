@@ -5,6 +5,7 @@ import { ISemver } from "src/universal/ISemver.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { L1Block } from "src/L2/L1Block.sol";
 import { LibZip } from "@solady/utils/LibZip.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @custom:proxied
 /// @custom:predeploy 0x420000000000000000000000000000000000000F
@@ -37,7 +38,7 @@ contract GasPriceOracle is ISemver {
     // Hardcoded values for the Fjord upgrade calculation
     int32 private constant COST_INTERCEPT = -42_585_600;
     uint32 private constant COST_FASTLZ_COEF = 836_500;
-    uint32 private constant MIN_TRANSCTION_SIZE = 71;
+    uint32 private constant MIN_TRANSACTION_SIZE = 71;
 
     /// @notice Computes the L1 portion of the fee based on the size of the rlp encoded input
     ///         transaction, the current L1 base fee, and the various dynamic parameters.
@@ -45,7 +46,7 @@ contract GasPriceOracle is ISemver {
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
         if (isFjord) {
-            return _getL1FeeFjord(_data);
+            return _fjordL1Cost(LibZip.flzCompress(_data).length + 68);
         }
         if (isEcotone) {
             return _getL1FeeEcotone(_data);
@@ -63,7 +64,7 @@ contract GasPriceOracle is ISemver {
         require(isFjord, "GasPriceOracle: getL1FeeUpperBound only supports Fjord");
 
         // txSize / 255 + 16 is the pratical fastlz upper-bound covers %99.99 txs.
-        // Add 68 to both size values to account for unsigned tx:
+        // Add 68 to the size to account for unsigned tx:
         uint256 flzUpperBound = _unsignedTxSize + _unsignedTxSize / 255 + 16 + 68;
 
         return _fjordL1Cost(flzUpperBound);
@@ -153,7 +154,13 @@ contract GasPriceOracle is ISemver {
     ///         of padding to account for the fact that the input does not have a signature.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
     /// @return Amount of L1 gas used to publish the transaction.
+    /// @custom:deprecated This method does not accurately estimate the gas used for a transaction.
+    ///                    If you are calculating fees use getL1Fee or getL1FeeUpperBound.
     function getL1GasUsed(bytes memory _data) public view returns (uint256) {
+        if (isFjord) {
+            // Add 68 to the size to account for unsigned tx
+            return Math.max(LibZip.flzCompress(_data).length + 68, MIN_TRANSACTION_SIZE) * 16;
+        }
         uint256 l1GasUsed = _getCalldataGas(_data);
         if (isEcotone) {
             return l1GasUsed;
@@ -182,16 +189,6 @@ contract GasPriceOracle is ISemver {
         return fee / (16 * 10 ** DECIMALS);
     }
 
-    /// @notice L1 portion of the fee after Fjord.
-    /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
-    /// @return L1 fee that should be paid for the tx
-    function _getL1FeeFjord(bytes memory _data) internal view returns (uint256) {
-        // add 68 to the size to account for unsigned tx:
-        uint256 fastlzSize = LibZip.flzCompress(_data).length + 68;
-
-        return _fjordL1Cost(fastlzSize);
-    }
-
     /// @notice L1 gas estimation calculation.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
     /// @return Amount of L1 gas used to publish the transaction.
@@ -209,17 +206,12 @@ contract GasPriceOracle is ISemver {
     }
 
     /// @notice Fjord L1 cost based on the compressed and original tx size.
-    /// @param _fastlzSize fastlz compressed tx size.
+    /// @param _estimatedSize fastlz compressed tx size.
     /// @return Fjord L1 fee that should be paid for the tx
-    function _fjordL1Cost(uint256 _fastlzSize) internal view returns (uint256) {
+    function _fjordL1Cost(uint256 _estimatedSize) internal view returns (uint256) {
+        _estimatedSize = Math.max(_estimatedSize, MIN_TRANSACTION_SIZE);
         uint256 feeScaled = baseFeeScalar() * 16 * l1BaseFee() + blobBaseFeeScalar() * blobBaseFee();
-
-        if (_fastlzSize < MIN_TRANSCTION_SIZE) {
-            _fastlzSize = MIN_TRANSCTION_SIZE;
-        }
-
-        // Due to the minimum fastlz size check, it's not possible for cost to be a negative number
-        int256 cost = COST_INTERCEPT + int256(COST_FASTLZ_COEF * _fastlzSize);
+        int256 cost = COST_INTERCEPT + int256(COST_FASTLZ_COEF * _estimatedSize);
         return uint256(cost) * feeScaled / (10 ** (DECIMALS * 2));
     }
 }

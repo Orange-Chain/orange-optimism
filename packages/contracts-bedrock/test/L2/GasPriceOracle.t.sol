@@ -7,7 +7,6 @@ import { OutputMode } from "scripts/L2Genesis.s.sol";
 
 // Libraries
 import { Encoding } from "src/libraries/Encoding.sol";
-import { console2 as console } from "forge-std/console2.sol";
 
 contract GasPriceOracle_Test is CommonTest {
     event OverheadUpdated(uint256);
@@ -262,38 +261,38 @@ contract GasPriceOracleFjordActive_Test is GasPriceOracle_Test {
     }
 
     /// @dev Tests that `l1BaseFee` is set correctly.
-    function test_l1BaseFee_succeeds() external {
+    function test_l1BaseFee_succeeds() view external {
         assertEq(gasPriceOracle.l1BaseFee(), baseFee);
     }
 
     /// @dev Tests that `blobBaseFee` is set correctly.
-    function test_blobBaseFee_succeeds() external {
+    function test_blobBaseFee_succeeds() view external {
         assertEq(gasPriceOracle.blobBaseFee(), blobBaseFee);
     }
 
     /// @dev Tests that `baseFeeScalar` is set correctly.
-    function test_baseFeeScalar_succeeds() external {
+    function test_baseFeeScalar_succeeds() view external {
         assertEq(gasPriceOracle.baseFeeScalar(), baseFeeScalar);
     }
 
     /// @dev Tests that `blobBaseFeeScalar` is set correctly.
-    function test_blobBaseFeeScalar_succeeds() external {
+    function test_blobBaseFeeScalar_succeeds() view external {
         assertEq(gasPriceOracle.blobBaseFeeScalar(), blobBaseFeeScalar);
     }
 
     /// @dev Tests that `decimals` is set correctly.
-    function test_decimals_succeeds() external {
+    function test_decimals_succeeds() view external {
         assertEq(gasPriceOracle.decimals(), 6);
         assertEq(gasPriceOracle.DECIMALS(), 6);
     }
 
     /// @dev Tests that `getL1GasUsed` and `getL1Fee` return expected values
-    function test_getL1Fee_succeeds() external {
-        bytes memory data = hex"0000010203"; // fastlzSize: 74
+    function test_getL1Fee_succeeds() view external {
+        bytes memory data = hex"0000010203"; // fastlzSize: 74, inc signature
         uint256 gas = gasPriceOracle.getL1GasUsed(data);
-        assertEq(gas, 1144);
+        assertEq(gas, 1184); // 74 * 16
         uint256 price = gasPriceOracle.getL1Fee(data);
-        assertEq(price, 13231);
+        assertEq(price, 13231); // (-42_585_600 + 74 * 836_500) * (20 * 16 * 2 * 1e6 + 3 * 1e6 * 15) / 1e12
     }
 }
 
