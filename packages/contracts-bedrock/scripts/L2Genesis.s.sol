@@ -40,6 +40,7 @@ struct L1Dependencies {
 /// @custom:value DEFAULT_LATEST Represents only latest L2 allocs, written to output path.
 /// @custom:value LOCAL_LATEST   Represents latest L2 allocs, not output anywhere, but kept in-process.
 /// @custom:value LOCAL_DELTA    Represents Delta-upgrade L2 allocs, not output anywhere, but kept in-process.
+/// @custom:value LOCAL_ECOTONE  Represents Ecotone-upgrade L2 allocs, not output anywhere, but kept in-process.
 /// @custom:value OUTPUT_ALL     Represents creation of one L2 allocs file for every upgrade.
 enum OutputMode {
     DEFAULT_LATEST,
@@ -161,9 +162,11 @@ contract L2Genesis is Deployer {
 
         activateEcotone();
 
-        // Ecotone is activated at this point
         if (_mode == OutputMode.LOCAL_ECOTONE) {
             return;
+        }
+        if (_mode == OutputMode.OUTPUT_ALL) {
+            writeGenesisAllocs(Config.stateDumpPath("-ecotone"));
         }
 
         activateFjord();

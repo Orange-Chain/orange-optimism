@@ -287,12 +287,31 @@ contract GasPriceOracleFjordActive_Test is GasPriceOracle_Test {
     }
 
     /// @dev Tests that `getL1GasUsed` and `getL1Fee` return expected values
-    function test_getL1Fee_succeeds() view external {
+    function test_getL1FeeMinimumBound_succeeds() view external {
         bytes memory data = hex"0000010203"; // fastlzSize: 74, inc signature
         uint256 gas = gasPriceOracle.getL1GasUsed(data);
         assertEq(gas, 1184); // 74 * 16
         uint256 price = gasPriceOracle.getL1Fee(data);
-        assertEq(price, 13231); // (-42_585_600 + 74 * 836_500) * (20 * 16 * 2 * 1e6 + 3 * 1e6 * 15) / 1e12
+        // linearRegression = -42.5856 + 74 * 0.8365 = 19.3154
+        // under the minTxSize of 71, so output is ignored
+         // 71_000_000 * (20 * 16 * 2 * 1e6 + 3 * 1e6 * 15) / 1e12
+        assertEq(price, 48635);
+    }
+
+    /// @dev Tests that `getL1GasUsed` and `getL1Fee` return expected values
+    function test_getL1FeeRegression_succeeds() view external {
+        // fastlzSize: 235, inc signature
+        bytes memory data = hex"1d2c3ec4f5a9b3f3cd2c024e455c1143a74bbd637c324adcbd4f74e346786ac44e23e78f47d932abedd8d1"
+                            hex"06daadcea350be16478461046273101034601364012364701331dfad43729dc486abd134bcad61b34d6ca1"
+                            hex"f2eb31655b7d61ca33ba6d172cdf7d8b5b0ef389a314ca7a9a831c09fc2ca9090d059b4dd25194f3de297b"
+                            hex"dba6d6d796e4f80be94f8a9151d685607826e7ba25177b40cb127ea9f1438470";
+
+        uint256 gas = gasPriceOracle.getL1GasUsed(data);
+        assertEq(gas, 3760); // 235 * 16
+        uint256 price = gasPriceOracle.getL1Fee(data);
+        // linearRegression = -42.5856 + 235 * 0.8365 = 153.9919
+        // 153_991_900 * (20 * 16 * 2 * 1e6 + 3 * 1e6 * 15) / 1e12
+        assertEq(price, 105484);
     }
 }
 

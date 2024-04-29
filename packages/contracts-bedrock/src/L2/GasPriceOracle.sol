@@ -5,7 +5,6 @@ import { ISemver } from "src/universal/ISemver.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { L1Block } from "src/L2/L1Block.sol";
 import { LibZip } from "@solady/utils/LibZip.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @custom:proxied
 /// @custom:predeploy 0x420000000000000000000000000000000000000F
@@ -38,7 +37,7 @@ contract GasPriceOracle is ISemver {
     // Hardcoded values for the Fjord upgrade calculation
     int32 private constant COST_INTERCEPT = -42_585_600;
     uint32 private constant COST_FASTLZ_COEF = 836_500;
-    uint32 private constant MIN_TRANSACTION_SIZE = 71;
+    uint256 private constant MIN_TRANSACTION_SIZE = 71;
 
     /// @notice Computes the L1 portion of the fee based on the size of the rlp encoded input
     ///         transaction, the current L1 base fee, and the various dynamic parameters.
@@ -159,7 +158,8 @@ contract GasPriceOracle is ISemver {
     function getL1GasUsed(bytes memory _data) public view returns (uint256) {
         if (isFjord) {
             // Add 68 to the size to account for unsigned tx
-            return Math.max(LibZip.flzCompress(_data).length + 68, MIN_TRANSACTION_SIZE) * 16;
+            // Assume the compressed data is mostly non-zero, and would pay 16 gas per calldata byte
+            return (LibZip.flzCompress(_data).length + 68) * 16;
         }
         uint256 l1GasUsed = _getCalldataGas(_data);
         if (isEcotone) {
@@ -206,12 +206,14 @@ contract GasPriceOracle is ISemver {
     }
 
     /// @notice Fjord L1 cost based on the compressed and original tx size.
-    /// @param _estimatedSize fastlz compressed tx size.
+    /// @param _fastLzSize fastlz compressed tx size.
     /// @return Fjord L1 fee that should be paid for the tx
-    function _fjordL1Cost(uint256 _estimatedSize) internal view returns (uint256) {
-        _estimatedSize = Math.max(_estimatedSize, MIN_TRANSACTION_SIZE);
+    function _fjordL1Cost(uint256 _fastLzSize) internal view returns (uint256) {
         uint256 feeScaled = baseFeeScalar() * 16 * l1BaseFee() + blobBaseFeeScalar() * blobBaseFee();
-        int256 cost = COST_INTERCEPT + int256(COST_FASTLZ_COEF * _estimatedSize);
-        return uint256(cost) * feeScaled / (10 ** (DECIMALS * 2));
+        int256 estimatedSize = COST_INTERCEPT + int256(COST_FASTLZ_COEF * _fastLzSize);
+        if (estimatedSize < int256(MIN_TRANSACTION_SIZE) * 1e6) {
+            estimatedSize = int256(MIN_TRANSACTION_SIZE) * 1e6;
+        }
+        return uint256(estimatedSize) * feeScaled / (10 ** (DECIMALS * 2));
     }
 }
