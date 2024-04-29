@@ -67,5 +67,10 @@
   "daChallengeWindow": 160,
   "daResolveWindow": 160,
   "daBondSize": 1000000,
-  "daResolverRefundPercentage": 0
+  "daResolverRefundPercentage": 0,
+  "livenessModuleInterval": 31536000,
+  "livenessModuleThresholdPercentage": 20,
+  "livenessModuleMinOwners": 2,
+  "securityCouncilThreshold": 2,
+  "securityCouncilOwners": ["0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"]
 }

@@ -8,6 +8,9 @@ import { console2 as console } from "forge-std/console2.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 
 import { Safe } from "safe-contracts/Safe.sol";
+import { OwnerManager } from "safe-contracts/base/OwnerManager.sol";
+import { GuardManager } from "safe-contracts/base/GuardManager.sol";
+import { ModuleManager } from "safe-contracts/base/ModuleManager.sol";
 import { SafeProxyFactory } from "safe-contracts/proxies/SafeProxyFactory.sol";
 import { Enum as SafeOps } from "safe-contracts/common/Enum.sol";
 
@@ -43,6 +46,9 @@ import { StorageSetter } from "src/universal/StorageSetter.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { Chains } from "scripts/Chains.sol";
 import { Config } from "scripts/Config.sol";
+import { LivenessGuard } from "src/Safe/LivenessGuard.sol";
+import { LivenessModule } from "src/Safe/LivenessModule.sol";
+import { DeputyGuardianModule } from "src/Safe/DeputyGuardianModule.sol";
 
 import { IBigStepper } from "src/dispute/interfaces/IBigStepper.sol";
 import { IPreimageOracle } from "src/cannon/interfaces/IPreimageOracle.sol";
@@ -182,6 +188,13 @@ contract Deploy is Deployer {
 
     /// @notice Gets the address of the SafeProxyFactory and Safe singleton for use in deploying a new GnosisSafe.
     function _getSafeFactory() internal returns (SafeProxyFactory safeProxyFactory_, Safe safeSingleton_) {
+        if (getAddress("SafeProxyFactory") != address(0)) {
+            // The SafeProxyFactory is already saved, we can just use it.
+            safeProxyFactory_ = SafeProxyFactory(getAddress("SafeProxyFactory"));
+            safeSingleton_ = Safe(getAddress("SafeSingleton"));
+            return (safeProxyFactory_, safeSingleton_);
+        }
+
         // These are the standard create2 deployed contracts. First we'll check if they are deployed,
         // if not we'll deploy new ones, though not at these addresses.
         address safeProxyFactory = 0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2;
@@ -198,13 +211,11 @@ contract Deploy is Deployer {
     }
 
     /// @notice Make a call from the Safe contract to an arbitrary address with arbitrary data
-    function _callViaSafe(address _target, bytes memory _data) internal {
-        Safe safe = Safe(mustGetAddress("SystemOwnerSafe"));
-
+    function _callViaSafe(Safe _safe, address _target, bytes memory _data) internal {
         // This is the signature format used the caller is also the signer.
         bytes memory signature = abi.encodePacked(uint256(uint160(msg.sender)), bytes32(0), uint8(1));
 
-        safe.execTransaction({
+        _safe.execTransaction({
             to: _target,
             value: 0,
             data: _data,
@@ -225,7 +236,8 @@ contract Deploy is Deployer {
         bytes memory data =
             abi.encodeCall(ProxyAdmin.upgradeAndCall, (payable(_proxy), _implementation, _innerCallData));
 
-        _callViaSafe({ _target: proxyAdmin, _data: data });
+        Safe safe = Safe(mustGetAddress("SystemOwnerSafe"));
+        _callViaSafe({ _safe: safe, _target: proxyAdmin, _data: data });
     }
 
     /// @notice Transfer ownership of the ProxyAdmin contract to the final system owner
@@ -272,9 +284,10 @@ contract Deploy is Deployer {
 
     /// @notice Internal function containing the deploy logic.
     function _run() internal {
-        console.log("start of L1 Deploy!");
-        deploySafe();
-        console.log("deployed Safe!");
+        deploySystemOwnerSafe();
+        console.log("deployed System Owner Safe!");
+        deploySecurityCouncilSafe();
+        console.log("deployed Security Council Safe!");
         setupSuperchain();
         console.log("set up superchain!");
         if (cfg.usePlasma()) {
@@ -413,22 +426,168 @@ contract Deploy is Deployer {
     //              Non-Proxied Deployment Functions              //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Deploy the Safe
-    function deploySafe() public broadcast returns (address addr_) {
-        console.log("Deploying Safe");
+    /// @notice Deploy the SystemOwnerSafe
+    function deploySystemOwnerSafe() public broadcast returns (address addr_) {
+        console.log("Deploying System Owner Safe");
         (SafeProxyFactory safeProxyFactory, Safe safeSingleton) = _getSafeFactory();
 
         address[] memory signers = new address[](1);
         signers[0] = msg.sender;
 
-        bytes memory initData = abi.encodeWithSelector(
-            Safe.setup.selector, signers, 1, address(0), hex"", address(0), address(0), 0, address(0)
-        );
+        bytes memory initData =
+            abi.encodeCall(Safe.setup, (signers, 1, address(0), hex"", address(0), address(0), 0, payable(address(0))));
         address safe = address(safeProxyFactory.createProxyWithNonce(address(safeSingleton), initData, block.timestamp));
 
         save("SystemOwnerSafe", address(safe));
         console.log("New SystemOwnerSafe deployed at %s", address(safe));
         addr_ = safe;
+    }
+
+    /// @notice Deploy a LivenessGuard for use on the Security Council Safe.
+    ///         Note this function does not have the broadcast modifier.
+    function deployLivenessGuard() public returns (address guard_) {
+        Safe councilSafe = Safe(payable(mustGetAddress("SecurityCouncilSafe")));
+        guard_ = address(new LivenessGuard(councilSafe));
+
+        save("LivenessGuard", address(guard_));
+        console.log("New LivenessGuard deployed at %s", address(guard_));
+    }
+
+    /// @notice Deploy a LivenessModule for use on the Security Council Safe
+    ///         Note this function does not have the broadcast modifier.
+    function deployLivenessModule() public returns (address module_) {
+        Safe councilSafe = Safe(payable(mustGetAddress("SecurityCouncilSafe")));
+        address fallbackOwner = mustGetAddress("SystemOwnerSafe");
+        address guard = mustGetAddress("LivenessGuard");
+
+        module_ = address(
+            new LivenessModule({
+                _safe: councilSafe,
+                _livenessGuard: LivenessGuard(guard),
+                _livenessInterval: cfg.livenessModuleInterval(),
+                _thresholdPercentage: cfg.livenessModuleThresholdPercentage(),
+                _minOwners: cfg.livenessModuleMinOwners(),
+                _fallbackOwner: fallbackOwner
+            })
+        );
+
+        save("LivenessModule", address(module_));
+        console.log("New LivenessModule deployed at %s", address(module_));
+    }
+
+    /// @notice Deploy a DeputyGuardianModule for use on the Security Council Safe.
+    ///         Note this function does not have the broadcast modifier.
+    function deployDeputyGuardianModule() public returns (address module_) {
+        Safe councilSafe = Safe(payable(mustGetAddress("SecurityCouncilSafe")));
+        address systemOwnerSafe = mustGetAddress("SystemOwnerSafe");
+        SuperchainConfig superchainConfig = SuperchainConfig(mustGetAddress("SuperchainConfig"));
+        module_ = address(
+            new DeputyGuardianModule({
+                _safe: councilSafe,
+                _superchainConfig: superchainConfig,
+                _deputyGuardian: systemOwnerSafe
+            })
+        );
+
+        save("DeputyGuardianModule", address(module_));
+        console.log("New DeputyGuardianModule deployed at %s", address(module_));
+    }
+
+    function deploySecurityCouncilExtensions(
+        address _councilSafe,
+        address _foundationSafe,
+        address _superchainConfig
+    )
+        public
+    {
+        save("SecurityCouncilSafe", _councilSafe);
+        save("SystemOwnerSafe", _foundationSafe);
+        save("SuperchainConfig", _superchainConfig);
+        vm.startBroadcast();
+        console.log("Deploying Security Council Extensions");
+        deployLivenessGuard();
+        deployLivenessModule();
+        deployDeputyGuardianModule();
+        vm.stopBroadcast();
+    }
+
+    /// @notice Deploy a Security Council with LivenessModule and LivenessGuard.
+    function deploySecurityCouncilSafe() public broadcast returns (address addr_) {
+        console.log("Deploying Security Council Safe");
+        (SafeProxyFactory safeProxyFactory, Safe safeSingleton) = _getSafeFactory();
+
+        address[] memory initialSigners = new address[](1);
+        initialSigners[0] = msg.sender;
+
+        bytes memory initData = abi.encodeCall(
+            Safe.setup, (initialSigners, 1, address(0), hex"", address(0), address(0), 0, payable(address(0)))
+        );
+        Safe safe = Safe(
+            payable(
+                address(safeProxyFactory.createProxyWithNonce(address(safeSingleton), initData, block.timestamp + 1))
+            )
+        );
+
+        save("SecurityCouncilSafe", address(safe));
+        console.log("New SecurityCouncilSafe deployed at %s", address(safe));
+
+        address deputyGuardianModule = deployDeputyGuardianModule();
+        _callViaSafe({
+            _safe: safe,
+            _target: address(safe),
+            _data: abi.encodeCall(ModuleManager.enableModule, (deputyGuardianModule))
+        });
+        console.log("DeputyGuardianModule enabled on SecurityCouncilSafe");
+
+        address livenessGuard = deployLivenessGuard();
+        _callViaSafe({
+            _safe: safe,
+            _target: address(safe),
+            _data: abi.encodeCall(GuardManager.setGuard, (livenessGuard))
+        });
+        console.log("LivenessGuard setup on SecurityCouncilSafe");
+
+        address[] memory securityCouncilOwners = cfg.securityCouncilOwners();
+        for (uint256 i = 0; i < securityCouncilOwners.length; i++) {
+            _callViaSafe({
+                _safe: safe,
+                _target: address(safe),
+                _data: abi.encodeCall(OwnerManager.addOwnerWithThreshold, (securityCouncilOwners[i], 1))
+            });
+        }
+
+        // Now that the owners have been added, we can set the threshold to the desired value.
+        uint256 newThreshold = cfg.securityCouncilThreshold();
+        _callViaSafe({
+            _safe: safe,
+            _target: address(safe),
+            _data: abi.encodeCall(OwnerManager.changeThreshold, (newThreshold))
+        });
+
+        // Now that the owners have been added and the threshold increased we can deploy the liveness module (otherwise
+        // constructor checks will fail).
+        address livenessModule = deployLivenessModule();
+
+        // Unfortunately, a threshold of owners is required to actually enable the module, so we're unable to do that
+        // here, and will settle for logging a warning below.
+        // _callViaSafe({ _safe: safe, _target: address(safe), _data: abi.encodeCall(ModuleManager.enableModule,
+        // (module)) });
+        // console.log("LivenessModule enabled on SecurityCouncilSafe");
+
+        addr_ = address(safe);
+        console.log("New SecurityCouncilSafe deployed at %s", address(safe));
+        console.log(
+            string.concat(
+                "\x1b[1;33mWARNING: The SecurityCouncilSafe is deployed with the LivenessGuard enabled.\n",
+                "  The final setup will require a threshold of signers to\n",
+                "    1. call enableModule() to enable the LivenessModule deployed at ",
+                vm.toString(livenessModule),
+                "\n",
+                "    2. call `removeOwner() to remove the deployer with address ",
+                vm.toString(msg.sender),
+                " which is still an owner. The threshold should not be changed.\x1b[0m"
+            )
+        );
     }
 
     /// @notice Deploy the AddressManager
@@ -985,8 +1144,10 @@ contract Deploy is Deployer {
         address superchainConfigProxy = mustGetAddress("SuperchainConfigProxy");
 
         uint256 proxyType = uint256(proxyAdmin.proxyType(l1StandardBridgeProxy));
+        Safe safe = Safe(mustGetAddress("SystemOwnerSafe"));
         if (proxyType != uint256(ProxyAdmin.ProxyType.CHUGSPLASH)) {
             _callViaSafe({
+                _safe: safe,
                 _target: address(proxyAdmin),
                 _data: abi.encodeCall(ProxyAdmin.setProxyType, (l1StandardBridgeProxy, ProxyAdmin.ProxyType.CHUGSPLASH))
             });
@@ -1062,8 +1223,10 @@ contract Deploy is Deployer {
         address optimismPortalProxy = mustGetAddress("OptimismPortalProxy");
 
         uint256 proxyType = uint256(proxyAdmin.proxyType(l1CrossDomainMessengerProxy));
+        Safe safe = Safe(mustGetAddress("SystemOwnerSafe"));
         if (proxyType != uint256(ProxyAdmin.ProxyType.RESOLVED)) {
             _callViaSafe({
+                _safe: safe,
                 _target: address(proxyAdmin),
                 _data: abi.encodeCall(ProxyAdmin.setProxyType, (l1CrossDomainMessengerProxy, ProxyAdmin.ProxyType.RESOLVED))
             });
@@ -1074,6 +1237,7 @@ contract Deploy is Deployer {
         string memory implName = proxyAdmin.implementationName(l1CrossDomainMessenger);
         if (keccak256(bytes(contractName)) != keccak256(bytes(implName))) {
             _callViaSafe({
+                _safe: safe,
                 _target: address(proxyAdmin),
                 _data: abi.encodeCall(ProxyAdmin.setImplementationName, (l1CrossDomainMessengerProxy, contractName))
             });

@@ -73,6 +73,11 @@ contract DeployConfig is Script {
     uint256 public daResolveWindow;
     uint256 public daBondSize;
     uint256 public daResolverRefundPercentage;
+    uint256 public livenessModuleInterval;
+    uint256 public livenessModuleThresholdPercentage;
+    uint256 public livenessModuleMinOwners;
+    uint256 public securityCouncilThreshold;
+    address[] internal _securityCouncilOwners;
 
     function read(string memory _path) public {
         console.log("DeployConfig: reading file %s", _path);
@@ -140,6 +145,13 @@ contract DeployConfig is Script {
         preimageOracleMinProposalSize = stdJson.readUint(_json, "$.preimageOracleMinProposalSize");
         preimageOracleChallengePeriod = stdJson.readUint(_json, "$.preimageOracleChallengePeriod");
 
+        livenessModuleInterval = _readOr(_json, "$.livenessModuleInterval", 0);
+        livenessModuleThresholdPercentage = _readOr(_json, "$.livenessModuleThresholdPercentage", 0);
+        livenessModuleMinOwners = _readOr(_json, "$.livenessModuleMinOwners", 0);
+
+        securityCouncilThreshold = _readOr(_json, "$.securityCouncilThreshold", 0);
+        _securityCouncilOwners = _readOr(_json, "$.securityCouncilOwners", new address[](0));
+
         usePlasma = _readOr(_json, "$.usePlasma", false);
         daChallengeWindow = _readOr(_json, "$.daChallengeWindow", 1000);
         daResolveWindow = _readOr(_json, "$.daResolveWindow", 1000);
@@ -185,6 +197,11 @@ contract DeployConfig is Script {
         useFaultProofs = _useFaultProofs;
     }
 
+    /// @notice Returns the full array of security council owners.
+    function securityCouncilOwners() public view returns (address[] memory) {
+        return _securityCouncilOwners;
+    }
+
     function _getBlockByTag(string memory _tag) internal returns (bytes32) {
         string[] memory cmd = new string[](3);
         cmd[0] = Executables.bash;
@@ -200,5 +217,17 @@ contract DeployConfig is Script {
 
     function _readOr(string memory json, string memory key, uint256 defaultValue) internal view returns (uint256) {
         return vm.keyExists(json, key) ? stdJson.readUint(json, key) : defaultValue;
+    }
+
+    function _readOr(
+        string memory json,
+        string memory key,
+        address[] memory defaultValue
+    )
+        internal
+        view
+        returns (address[] memory)
+    {
+        return vm.keyExists(json, key) ? stdJson.readAddressArray(json, key) : defaultValue;
     }
 }
