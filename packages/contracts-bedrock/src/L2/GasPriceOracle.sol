@@ -159,7 +159,8 @@ contract GasPriceOracle is ISemver {
         if (isFjord) {
             // Add 68 to the size to account for unsigned tx
             // Assume the compressed data is mostly non-zero, and would pay 16 gas per calldata byte
-            return (LibZip.flzCompress(_data).length + 68) * 16;
+            // Divide by 1e6 due to the scaling factor of the linear regression
+            return _fjordLinearRegression(LibZip.flzCompress(_data).length + 68) * 16 / 1e6;
         }
         uint256 l1GasUsed = _getCalldataGas(_data);
         if (isEcotone) {
@@ -206,14 +207,23 @@ contract GasPriceOracle is ISemver {
     }
 
     /// @notice Fjord L1 cost based on the compressed and original tx size.
-    /// @param _fastLzSize fastlz compressed tx size.
+    /// @param _fastLzSize estimated compressed tx size.
     /// @return Fjord L1 fee that should be paid for the tx
     function _fjordL1Cost(uint256 _fastLzSize) internal view returns (uint256) {
+        // Apply the linear regression to estimate the Brotli 10 size
+        uint256 estimatedSize = _fjordLinearRegression(_fastLzSize);
         uint256 feeScaled = baseFeeScalar() * 16 * l1BaseFee() + blobBaseFeeScalar() * blobBaseFee();
+        return estimatedSize * feeScaled / (10 ** (DECIMALS * 2));
+    }
+
+    /// @notice Takes the fastLz size compression and returns the estimated Brotli
+    /// @param _fastLzSize fastlz compressed tx size.
+    /// @return Number of bytes in the compressed transaction
+    function _fjordLinearRegression(uint256 _fastLzSize) internal pure returns (uint256) {
         int256 estimatedSize = COST_INTERCEPT + int256(COST_FASTLZ_COEF * _fastLzSize);
         if (estimatedSize < int256(MIN_TRANSACTION_SIZE) * 1e6) {
             estimatedSize = int256(MIN_TRANSACTION_SIZE) * 1e6;
         }
-        return uint256(estimatedSize) * feeScaled / (10 ** (DECIMALS * 2));
+        return uint256(estimatedSize);
     }
 }

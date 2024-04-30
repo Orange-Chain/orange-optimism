@@ -289,7 +289,7 @@ contract GasPriceOracleFjordActive_Test is GasPriceOracle_Test {
     function test_getL1FeeMinimumBound_succeeds() external view {
         bytes memory data = hex"0000010203"; // fastlzSize: 74, inc signature
         uint256 gas = gasPriceOracle.getL1GasUsed(data);
-        assertEq(gas, 1184); // 74 * 16
+        assertEq(gas, 1600); // 100 * 16
         uint256 price = gasPriceOracle.getL1Fee(data);
         // linearRegression = -42.5856 + 74 * 0.8365 = 19.3154
         // under the minTxSize of 71, so output is ignored
@@ -307,7 +307,7 @@ contract GasPriceOracleFjordActive_Test is GasPriceOracle_Test {
             hex"dba6d6d796e4f80be94f8a9151d685607826e7ba25177b40cb127ea9f1438470";
 
         uint256 gas = gasPriceOracle.getL1GasUsed(data);
-        assertEq(gas, 3760); // 235 * 16
+        assertEq(gas, 2463); // 235 * 16
         uint256 price = gasPriceOracle.getL1Fee(data);
         // linearRegression = -42.5856 + 235 * 0.8365 = 153.9919
         // 153_991_900 * (20 * 16 * 2 * 1e6 + 3 * 1e6 * 15) / 1e12
