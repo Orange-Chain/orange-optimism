@@ -8,6 +8,9 @@ library Predeploys {
     /// @notice Number of predeploy-namespace addresses reserved for protocol usage.
     uint256 internal constant PREDEPLOY_COUNT = 2048;
 
+    /// @notice Address of the RevenueSharer predeploy.
+    address payable internal constant REVENUE_SHARER = payable(0x4200000000000000000000000000000000000024);
+
     /// @custom:legacy
     /// @notice Address of the LegacyMessagePasser predeploy. Deprecate. Use the updated
     ///         L2ToL1MessagePasser contract instead.
@@ -37,7 +40,7 @@ library Predeploys {
     address internal constant L2_STANDARD_BRIDGE = 0x4200000000000000000000000000000000000010;
 
     //// @notice Address of the SequencerFeeWallet predeploy.
-    address internal constant SEQUENCER_FEE_WALLET = 0x4200000000000000000000000000000000000011;
+    address payable internal constant SEQUENCER_FEE_WALLET = payable(0x4200000000000000000000000000000000000011);
 
     /// @notice Address of the OptimismMintableERC20Factory predeploy.
     address internal constant OPTIMISM_MINTABLE_ERC20_FACTORY = 0x4200000000000000000000000000000000000012;
@@ -63,10 +66,10 @@ library Predeploys {
     address internal constant PROXY_ADMIN = 0x4200000000000000000000000000000000000018;
 
     /// @notice Address of the BaseFeeVault predeploy.
-    address internal constant BASE_FEE_VAULT = 0x4200000000000000000000000000000000000019;
+    address payable internal constant BASE_FEE_VAULT = payable(0x4200000000000000000000000000000000000019);
 
     /// @notice Address of the L1FeeVault predeploy.
-    address internal constant L1_FEE_VAULT = 0x420000000000000000000000000000000000001A;
+    address payable internal constant L1_FEE_VAULT = payable(0x420000000000000000000000000000000000001A);
 
     /// @notice Address of the SchemaRegistry predeploy.
     address internal constant SCHEMA_REGISTRY = 0x4200000000000000000000000000000000000020;
@@ -111,6 +114,7 @@ library Predeploys {
         if (_addr == GOVERNANCE_TOKEN) return "GovernanceToken";
         if (_addr == LEGACY_ERC20_ETH) return "LegacyERC20ETH";
         if (_addr == CROSS_L2_INBOX) return "CrossL2Inbox";
+        if (_addr == REVENUE_SHARER) return "RevenueSharer";
         revert("Predeploys: unnamed predeploy");
     }
 
@@ -126,7 +130,8 @@ library Predeploys {
             || _addr == SEQUENCER_FEE_WALLET || _addr == OPTIMISM_MINTABLE_ERC20_FACTORY || _addr == L1_BLOCK_NUMBER
             || _addr == L2_ERC721_BRIDGE || _addr == L1_BLOCK_ATTRIBUTES || _addr == L2_TO_L1_MESSAGE_PASSER
             || _addr == OPTIMISM_MINTABLE_ERC721_FACTORY || _addr == PROXY_ADMIN || _addr == BASE_FEE_VAULT
-            || _addr == L1_FEE_VAULT || _addr == SCHEMA_REGISTRY || _addr == EAS || _addr == GOVERNANCE_TOKEN;
+            || _addr == L1_FEE_VAULT || _addr == SCHEMA_REGISTRY || _addr == EAS || _addr == GOVERNANCE_TOKEN
+            || _addr == REVENUE_SHARER;
     }
 
     function isPredeployNamespace(address _addr) internal pure returns (bool) {
