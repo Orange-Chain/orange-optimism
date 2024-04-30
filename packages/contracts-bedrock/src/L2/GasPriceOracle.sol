@@ -37,7 +37,7 @@ contract GasPriceOracle is ISemver {
     // Hardcoded values for the Fjord upgrade calculation
     int32 private constant COST_INTERCEPT = -42_585_600;
     uint32 private constant COST_FASTLZ_COEF = 836_500;
-    uint256 private constant MIN_TRANSACTION_SIZE = 71;
+    uint256 private constant MIN_TRANSACTION_SIZE = 100;
 
     /// @notice Computes the L1 portion of the fee based on the size of the rlp encoded input
     ///         transaction, the current L1 base fee, and the various dynamic parameters.
