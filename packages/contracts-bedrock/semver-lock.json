@@ -60,8 +60,8 @@
     "sourceCodeHash": "0x864d244dd0b01cb01e5f50425bedce46e72005bdb8bead198ac885481547f41d"
   },
   "src/L2/GasPriceOracle.sol": {
-    "initCodeHash": "0xfd456e91d8c9714590a4f0a2c1046ba70e102f1c629ead886c4eebc3f921c3c3",
-    "sourceCodeHash": "0xde06becce9514f46ba78b4cb0732c7a714d49ba8f131258d56a5f5b22b51be7e"
+    "initCodeHash": "0x235382db0c03d93628b6609dc9aed5cf60b7f6945d88d13d59049e30b16423d0",
+    "sourceCodeHash": "0x5794b836406ff3b340b2208c8555077861732c9eab048e05ffed7416d20ac992"
   },
   "src/L2/L1Block.sol": {
     "initCodeHash": "0x42d17698899f06e6cf38823bea3dbaff32ba32ebcb2974f928f93d005a3ea91b",
