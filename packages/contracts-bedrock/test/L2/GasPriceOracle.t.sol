@@ -292,7 +292,7 @@ contract GasPriceOracleFjordActive_Test is GasPriceOracle_Test {
         assertEq(gas, 1600); // 100 * 16
         uint256 price = gasPriceOracle.getL1Fee(data);
         // linearRegression = -42.5856 + 74 * 0.8365 = 19.3154
-        // under the minTxSize of 71, so output is ignored
+        // under the minTxSize of 100, so output is ignored
         // 100_000_000 * (20 * 16 * 2 * 1e6 + 3 * 1e6 * 15) / 1e12
         assertEq(price, 68500);
     }
