@@ -9,6 +9,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/ethereum-optimism/optimism/op-batcher/compressor"
+	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	plasma "github.com/ethereum-optimism/optimism/op-plasma"
 	opservice "github.com/ethereum-optimism/optimism/op-service"
 	openum "github.com/ethereum-optimism/optimism/op-service/enum"
@@ -98,6 +99,15 @@ var (
 			}
 			return nil
 		},
+	}
+	CompressionAlgoFlag = &cli.GenericFlag{
+		Name:    "compression-algo",
+		Usage:   "The compression algorithm to use. Valid options: " + openum.EnumString(derive.CompressionAlgoTypes),
+		EnvVars: prefixEnvVars("COMPRESSION_ALGO"),
+		Value: func() *derive.CompressionAlgo {
+			out := derive.Zlib
+			return &out
+		}(),
 	}
 	StoppedFlag = &cli.BoolFlag{
 		Name:    "stopped",

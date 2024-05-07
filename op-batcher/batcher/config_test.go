@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-batcher/batcher"
 	"github.com/ethereum-optimism/optimism/op-batcher/compressor"
 	"github.com/ethereum-optimism/optimism/op-batcher/flags"
+	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/log"
 	"github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/oppprof"
@@ -15,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func validBatcherConfig() batcher.CLIConfig {
+func validBatcherConfig(algo derive.CompressionAlgo) batcher.CLIConfig {
 	return batcher.CLIConfig{
 		L1EthRpc:               "fake",
 		L2EthRpc:               "fake",
@@ -34,14 +35,16 @@ func validBatcherConfig() batcher.CLIConfig {
 		LogConfig:              log.DefaultCLIConfig(),
 		MetricsConfig:          metrics.DefaultCLIConfig(),
 		PprofConfig:            oppprof.DefaultCLIConfig(),
-		// The compressor config is not checked in config.Check()
-		RPC: rpc.DefaultCLIConfig(),
+		RPC:                    rpc.DefaultCLIConfig(),
+		CompressionAlgo:        algo,
 	}
 }
 
 func TestValidBatcherConfig(t *testing.T) {
-	cfg := validBatcherConfig()
-	require.NoError(t, cfg.Check(), "valid config should pass the check function")
+	for _, algo := range derive.CompressionAlgoTypes {
+		cfg := validBatcherConfig(algo)
+		require.NoError(t, cfg.Check(), "valid config should pass the check function")
+	}
 }
 
 func TestBatcherConfig(t *testing.T) {
@@ -115,10 +118,12 @@ func TestBatcherConfig(t *testing.T) {
 
 	for _, test := range tests {
 		tc := test
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := validBatcherConfig()
-			tc.override(&cfg)
-			require.ErrorContains(t, cfg.Check(), tc.errString)
-		})
+		for _, algo := range derive.CompressionAlgoTypes {
+			t.Run(tc.name+"_"+algo.String(), func(t *testing.T) {
+				cfg := validBatcherConfig(algo)
+				tc.override(&cfg)
+				require.ErrorContains(t, cfg.Check(), tc.errString)
+			})
+		}
 	}
 }

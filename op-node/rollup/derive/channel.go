@@ -1,13 +1,20 @@
 package derive
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"fmt"
 	"io"
 
+	"github.com/andybalholm/brotli"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum/rlp"
+)
+
+const (
+	ZlibCM8  = 8
+	ZlibCM15 = 15
 )
 
 // A Channel is a set of batches that are split into at least one, but possibly multiple frames.
@@ -147,8 +154,35 @@ func (ch *Channel) Reader() io.Reader {
 // Warning: the batch reader can read every batch-type.
 // The caller of the batch-reader should filter the results.
 func BatchReader(r io.Reader) (func() (*BatchData, error), error) {
+	// use buffered reader so can peek the first byte
+	bufReader := bufio.NewReader(r)
+	compressionType, err := bufReader.Peek(1)
+	if err != nil {
+		return nil, err
+	}
+
+	var reader func(io.Reader) (io.Reader, error)
+	// For zlib, the last 4 bits must be either 8 or 15 (both are reserved value)
+	if compressionType[0]&0x0F == ZlibCM8 || compressionType[0]&0x0F == ZlibCM15 {
+		reader = func(r io.Reader) (io.Reader, error) {
+			return zlib.NewReader(r)
+		}
+		// If the bits equal to 1, then it is a brotli reader
+	} else if compressionType[0] == ChannelVersionBrotli {
+		// discard the first byte
+		_, err := bufReader.Discard(1)
+		if err != nil {
+			return nil, err
+		}
+		reader = func(r io.Reader) (io.Reader, error) {
+			return brotli.NewReader(r), nil
+		}
+	} else {
+		return nil, fmt.Errorf("cannot distinguish the compression algo used given type byte %v", compressionType[0])
+	}
+
 	// Setup decompressor stage + RLP reader
-	zr, err := zlib.NewReader(r)
+	zr, err := reader(bufReader)
 	if err != nil {
 		return nil, err
 	}
