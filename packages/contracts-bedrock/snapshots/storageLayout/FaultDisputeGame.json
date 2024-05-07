@@ -28,6 +28,13 @@
     "type": "bool"
   },
   {
+    "bytes": "1",
+    "label": "l2BlockNumberChallenged",
+    "offset": 18,
+    "slot": "0",
+    "type": "bool"
+  },
+  {
     "bytes": "32",
     "label": "claimData",
     "offset": 0,
