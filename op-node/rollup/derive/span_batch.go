@@ -420,6 +420,10 @@ type SpanBatch struct {
 	originBits    *big.Int
 	blockTxCounts []uint64
 	sbtxs         *spanBatchTxs
+
+	// caching values for revertLastBatch
+	lastParentCheck   [20]byte
+	lastL1OriginCheck [20]byte
 }
 
 // spanBatchMarshaling is a helper type used for JSON marshaling.
@@ -505,7 +509,7 @@ func (b *SpanBatch) peek(n int) *SpanBatchElement { return b.Batches[len(b.Batch
 // updates l1OriginCheck or parentCheck if needed.
 func (b *SpanBatch) AppendSingularBatch(singularBatch *SingularBatch, seqNum uint64) error {
 	// if this new element is not ordered with respect to the last element, panic
-	if len(b.Batches) > 0 && b.peek(0).Timestamp > singularBatch.Timestamp {
+	if len(b.Batches) > 0 && b.peek(0).Timestamp >= singularBatch.Timestamp {
 		panic("span batch is not ordered")
 	}
 
@@ -513,7 +517,10 @@ func (b *SpanBatch) AppendSingularBatch(singularBatch *SingularBatch, seqNum uin
 	b.Batches = append(b.Batches, singularBatchToElement(singularBatch))
 
 	// always update the L1 origin check
+	copy(b.lastL1OriginCheck[:], b.L1OriginCheck[:])
 	copy(b.L1OriginCheck[:], singularBatch.EpochHash.Bytes()[:20])
+
+	copy(b.lastParentCheck[:], b.ParentCheck[:])
 	// if there is only one batch, initialize the ParentCheck
 	// and set the epochBit based on the seqNum
 	epochBit := uint(0)
@@ -542,6 +549,35 @@ func (b *SpanBatch) AppendSingularBatch(singularBatch *SingularBatch, seqNum uin
 	// add the new txs to the sbtxs
 	// this is the only place where we can get an error
 	return b.sbtxs.AddTxs(newTxs, b.ChainID)
+}
+
+// revertLastBatch can only revert the changes by the latest AppendSingularBatch call,
+// it can not revert changes by previous AppendSingularBatch calls.
+func (b *SpanBatch) revertLastBatch() {
+	if len(b.Batches) == 0 {
+		panic("revertLastBatch should only be called when there's at least 1 batch")
+	}
+	// revert ParentCheck
+	copy(b.ParentCheck[:], b.lastParentCheck[:])
+	// revert L1OriginCheck
+	copy(b.L1OriginCheck[:], b.lastL1OriginCheck[:])
+	reverted := b.Batches[len(b.Batches)-1]
+	// revert Batches
+	b.Batches = b.Batches[0 : len(b.Batches)-1]
+
+	// revert originBits
+	if len(b.Batches) == 0 {
+		b.originBits.SetBit(b.originBits, 0, 0)
+	} else {
+		if b.peek(0).EpochNum < reverted.EpochNum {
+			b.originBits.SetBit(b.originBits, len(b.Batches), 0)
+		}
+	}
+	// revert blockTxCounts
+	b.blockTxCounts = b.blockTxCounts[0 : len(b.blockTxCounts)-1]
+
+	// revert sbtxs
+	b.sbtxs.revertLastTxs(reverted.Transactions)
 }
 
 // ToRawSpanBatch merges SingularBatch List and initialize single RawSpanBatch

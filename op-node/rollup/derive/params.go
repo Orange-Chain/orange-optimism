@@ -28,8 +28,8 @@ const DerivationVersion1 = plasma.TxDataVersion1
 // or transaction per block allowed in a span batch.
 const MaxSpanBatchElementCount = 10_000_000
 
-// DuplicateErr is returned when a newly read frame is already known
-var DuplicateErr = errors.New("duplicate frame")
+// ErrDuplicate is returned when a newly read frame is already known
+var ErrDuplicate = errors.New("duplicate frame")
 
 // ChannelIDLength defines the length of the channel IDs
 const ChannelIDLength = 16
