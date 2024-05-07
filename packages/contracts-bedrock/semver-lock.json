@@ -32,12 +32,12 @@
     "sourceCodeHash": "0xf5fcf570721e25459fadbb37e02f9efe349e1c8afcbf1e3b5fdb09c9f612cdc0"
   },
   "src/L1/OptimismPortal.sol": {
-    "initCodeHash": "0x1bb0e9d1ea31341cf1544b66faba3381ef7c9d0dcf819352daa35f81c0aea39e",
-    "sourceCodeHash": "0x8e9221539290a9b3cfb933d30ab77b137e2a76a1481671e41469ed1014ffbdc4"
+    "initCodeHash": "0x8905950d66c39a02a1bd8d561f8409da929a3bea69adb1ab5c6578b1e8f73c6d",
+    "sourceCodeHash": "0xfa836c3a1112efaa2b50fa3a53435260b98eff2a0296ce27f6a959bb085aa9dd"
   },
   "src/L1/OptimismPortal2.sol": {
-    "initCodeHash": "0xc8003afa40ae78fc62924f7085f6b6868ea12717f0656c90223981edff6621df",
-    "sourceCodeHash": "0x209d7e9ffa97a54c060f5d30e5d88684a50a7b4610336cf03880bfbc80ca669e"
+    "initCodeHash": "0xfbb004cbe6372f96427b4d85b4c5f6c2240df5b53ecd4f4191a647c5070d73b2",
+    "sourceCodeHash": "0x319f55ff3fd3a10ea21e01f063de923806d8730e4cbe14e128d6fe9f7ba95c18"
   },
   "src/L1/ProtocolVersions.sol": {
     "initCodeHash": "0x72cd467e8bcf019c02675d72ab762e088bcc9cc0f1a4e9f587fa4589f7fdd1b8",
