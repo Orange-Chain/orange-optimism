@@ -574,7 +574,7 @@ contract OptimismPortal is Initializable, ResourceMetering, ISemver {
             abi.encodePacked(
                 uint256(0), // mint
                 uint256(0), // value
-                uint64(SYSTEM_DEPOSIT_GAS_LIMIT), // gasLimit
+                uint64(10 * SYSTEM_DEPOSIT_GAS_LIMIT), // gasLimit
                 false, // isCreation,
                 abi.encodeCall(L1Block.setGasPayingToken, (_token, _decimals, _name, _symbol))
             )
