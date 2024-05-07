@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup/sync"
 	"github.com/ethereum-optimism/optimism/op-service/clock"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -42,9 +41,11 @@ type ExecEngine interface {
 	ForkchoiceUpdate(ctx context.Context, state *eth.ForkchoiceState, attr *eth.PayloadAttributes) (*eth.ForkchoiceUpdatedResult, error)
 	NewPayload(ctx context.Context, payload *eth.ExecutionPayload, parentBeaconBlockRoot *common.Hash) (*eth.PayloadStatusV1, error)
 	L2BlockRefByLabel(ctx context.Context, label eth.BlockLabel) (eth.L2BlockRef, error)
+	L2BlockRefByNumber(ctx context.Context, number uint64) (eth.L2BlockRef, error)
 }
 
 type EngineController struct {
+	l1         sync.L1Chain
 	engine     ExecEngine // Underlying execution engine RPC
 	log        log.Logger
 	metrics    Metrics
@@ -75,13 +76,14 @@ type EngineController struct {
 	safeAttrs    *AttributesWithParent
 }
 
-func NewEngineController(engine ExecEngine, log log.Logger, metrics Metrics, rollupCfg *rollup.Config, syncMode sync.Mode) *EngineController {
+func NewEngineController(l1 sync.L1Chain, engine ExecEngine, log log.Logger, metrics Metrics, rollupCfg *rollup.Config, syncMode sync.Mode) *EngineController {
 	syncStatus := syncStatusCL
 	if syncMode == sync.ELSync {
 		syncStatus = syncStatusWillStartEL
 	}
 
 	return &EngineController{
+		l1:         l1,
 		engine:     engine,
 		log:        log,
 		metrics:    metrics,
@@ -269,7 +271,9 @@ func (e *EngineController) resetBuildingState() {
 // It returns true if the status is acceptable.
 func (e *EngineController) checkNewPayloadStatus(status eth.ExecutePayloadStatus) bool {
 	if e.syncMode == sync.ELSync {
-		if status == eth.ExecutionValid && e.syncStatus == syncStatusStartedEL {
+		if status == eth.ExecutionSyncing && e.syncStatus == syncStatusWillStartEL {
+			e.syncStatus = syncStatusStartedEL
+		} else if status == eth.ExecutionValid {
 			e.syncStatus = syncStatusFinishedELButNotFinalized
 		}
 		// Allow SYNCING and ACCEPTED if engine EL sync is enabled
@@ -282,7 +286,9 @@ func (e *EngineController) checkNewPayloadStatus(status eth.ExecutePayloadStatus
 // It returns true if the status is acceptable.
 func (e *EngineController) checkForkchoiceUpdatedStatus(status eth.ExecutePayloadStatus) bool {
 	if e.syncMode == sync.ELSync {
-		if status == eth.ExecutionValid && e.syncStatus == syncStatusStartedEL {
+		if status == eth.ExecutionSyncing && e.syncStatus == syncStatusWillStartEL {
+			e.syncStatus = syncStatusStartedEL
+		} else if status == eth.ExecutionValid {
 			e.syncStatus = syncStatusFinishedELButNotFinalized
 		}
 		// Allow SYNCING if engine P2P sync is enabled
@@ -324,22 +330,6 @@ func (e *EngineController) TryUpdateEngine(ctx context.Context) error {
 }
 
 func (e *EngineController) InsertUnsafePayload(ctx context.Context, envelope *eth.ExecutionPayloadEnvelope, ref eth.L2BlockRef) error {
-	// Check if there is a finalized head once when doing EL sync. If so, transition to CL sync
-	if e.syncStatus == syncStatusWillStartEL {
-		b, err := e.engine.L2BlockRefByLabel(ctx, eth.Finalized)
-		isTransitionBlock := e.rollupCfg.Genesis.L2.Number != 0 && b.Hash == e.rollupCfg.Genesis.L2.Hash
-		if errors.Is(err, ethereum.NotFound) || isTransitionBlock {
-			e.syncStatus = syncStatusStartedEL
-			e.log.Info("Starting EL sync")
-			e.elStart = e.clock.Now()
-		} else if err == nil {
-			e.syncStatus = syncStatusFinishedEL
-			e.log.Info("Skipping EL sync and going straight to CL sync because there is a finalized block", "id", b.ID())
-			return nil
-		} else {
-			return NewTemporaryError(fmt.Errorf("failed to fetch finalized head: %w", err))
-		}
-	}
 	// Insert the payload & then call FCU
 	status, err := e.engine.NewPayload(ctx, envelope.ExecutionPayload, envelope.ParentBeaconBlockRoot)
 	if err != nil {
@@ -358,10 +348,27 @@ func (e *EngineController) InsertUnsafePayload(ctx context.Context, envelope *et
 		FinalizedBlockHash: e.finalizedHead.Hash,
 	}
 	if e.syncStatus == syncStatusFinishedELButNotFinalized {
-		fc.SafeBlockHash = envelope.ExecutionPayload.BlockHash
-		fc.FinalizedBlockHash = envelope.ExecutionPayload.BlockHash
-		e.SetSafeHead(ref)
-		e.SetFinalizedHead(ref)
+		// Find the highest finalized block by traversing L2 blocks from the tip and
+		// compare their L1Origin with the highest L1 finalized block
+		finalized_l1_block, err := e.l1.L1BlockRefByLabel(ctx, eth.Finalized)
+		if err != nil {
+			return NewTemporaryError(fmt.Errorf("failed to fetch l1 finalized block: %w", err))
+		}
+
+		l2_block, err := e.engine.L2BlockRefByLabel(ctx, eth.Unsafe)
+		for {
+			if err != nil {
+				return NewTemporaryError(fmt.Errorf("failed to fetch l2 head block: %w", err))
+			}
+
+			if l2_block.L1Origin.Number <= finalized_l1_block.Number {
+				// We have found the highest finalized block L1 <> L2 combo
+				fc.FinalizedBlockHash = l2_block.Hash
+				e.SetFinalizedHead(l2_block)
+				break
+			}
+			l2_block, err = e.engine.L2BlockRefByNumber(ctx, l2_block.Number-1)
+		}
 	}
 	fcRes, err := e.engine.ForkchoiceUpdate(ctx, &fc, nil)
 	if err != nil {
