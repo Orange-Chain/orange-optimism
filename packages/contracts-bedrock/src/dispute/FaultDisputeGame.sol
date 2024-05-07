@@ -14,6 +14,9 @@ import { Clone } from "@solady/utils/Clone.sol";
 import { Types } from "src/libraries/Types.sol";
 import { ISemver } from "src/universal/ISemver.sol";
 
+import { Types } from "src/libraries/Types.sol";
+import { Hashing } from "src/libraries/Hashing.sol";
+import { RLPReader } from "src/libraries/rlp/RLPReader.sol";
 import "src/dispute/lib/Types.sol";
 import "src/dispute/lib/Errors.sol";
 
@@ -60,9 +63,14 @@ contract FaultDisputeGame is IFaultDisputeGame, Clone, ISemver {
     /// @notice The global root claim's position is always at gindex 1.
     Position internal constant ROOT_POSITION = Position.wrap(1);
 
+    /// @notice The index of the block number in the RLP-encoded block header.
+    /// @dev Consensus encoding reference:
+    /// https://github.com/paradigmxyz/reth/blob/5f82993c23164ce8ccdc7bf3ae5085205383a5c8/crates/primitives/src/header.rs#L368
+    uint256 internal constant HEADER_BLOCK_NUMBER_INDEX = 8;
+
     /// @notice Semantic version.
-    /// @custom:semver 1.0.0
-    string public constant version = "1.0.0";
+    /// @custom:semver 1.1.0
+    string public constant version = "1.1.0";
 
     /// @notice The starting timestamp of the game
     Timestamp public createdAt;
@@ -75,6 +83,9 @@ contract FaultDisputeGame is IFaultDisputeGame, Clone, ISemver {
 
     /// @notice Flag for the `initialize` function to prevent re-initialization.
     bool internal initialized;
+
+    /// @notice Flag for whether or not the L2 block number claim has been invalidated via `challengeRootL2Block`.
+    bool public l2BlockNumberChallenged;
 
     /// @notice An append-only array of all claims made during the dispute game.
     ClaimData[] public claimData;
@@ -314,6 +325,10 @@ contract FaultDisputeGame is IFaultDisputeGame, Clone, ISemver {
         Position nextPosition = parentPos.move(_isAttack);
         uint256 nextPositionDepth = nextPosition.depth();
 
+        // INVARIANT: A move cannot be made against a special claim at position 0. This position is unable to
+        //            be traversed to through traditional moves, and is only assignable through `challengeRootL2Block`.
+        if (parentPos.raw() == 0) revert InvalidClaim();
+
         // INVARIANT: A defense can never be made against the root claim of either the output root game or any
         //            of the execution trace bisection subgames. This is because the root claim commits to the
         //            entire state. Therefore, the only valid defense is to do nothing if it is agreed with.
@@ -460,6 +475,66 @@ contract FaultDisputeGame is IFaultDisputeGame, Clone, ISemver {
     /// @inheritdoc IFaultDisputeGame
     function startingRootHash() external view returns (Hash startingRootHash_) {
         startingRootHash_ = startingOutputRoot.root;
+    }
+
+    /// @notice Challenges the root L2 block number by providing the preimage of the output root and the L2 block header
+    ///         and showing that the committed L2 block number is incorrect relative to the claimed L2 block number.
+    /// @param _outputRootProof The output root proof.
+    /// @param _headerRLP The RLP-encoded L2 block header.
+    function challengeRootL2Block(
+        Types.OutputRootProof calldata _outputRootProof,
+        bytes calldata _headerRLP
+    )
+        external
+    {
+        // The root L2 block claim can only be challenged once.
+        if (l2BlockNumberChallenged) revert L2BlockNumberChallenged();
+
+        // Verify the output root preimage.
+        if (Hashing.hashOutputRootProof(_outputRootProof) != rootClaim().raw()) revert InvalidOutputRootProof();
+
+        // Verify the block hash preimage.
+        if (keccak256(_headerRLP) != _outputRootProof.latestBlockhash) revert InvalidHeaderRLP();
+
+        // Decode the header RLP to find the number of the block. In the consensus encoding, the timestamp
+        // is the 9th element in the list that represents the block header.
+        RLPReader.RLPItem[] memory headerContents = RLPReader.readList(RLPReader.toRLPItem(_headerRLP));
+        bytes memory rawBlockNumber = RLPReader.readBytes(headerContents[HEADER_BLOCK_NUMBER_INDEX]);
+
+        // Sanity check the block number string length.
+        if (rawBlockNumber.length > 32) revert InvalidHeaderRLP();
+
+        // Convert the raw, left-aligned block number to a uint256 by aligning it as a big-endian
+        // number in the low-order bytes of a 32-byte word.
+        //
+        // SAFETY: The length of `rawBlockNumber` is checked above to ensure it is at most 32 bytes.
+        uint256 blockNumber;
+        assembly {
+            blockNumber := shr(shl(0x03, sub(0x20, mload(rawBlockNumber))), mload(add(rawBlockNumber, 0x20)))
+        }
+
+        // Ensure the block number does not match the block number claimed in the dispute game.
+        if (blockNumber == l2BlockNumber()) revert BlockNumberMatches();
+
+        // Issue a special counter to the root claim at a position that is further left than any position that may
+        // be traversed to through traditional moves.
+        claimData.push(
+            ClaimData({
+                parentIndex: 0,
+                counteredBy: address(0),
+                claimant: msg.sender,
+                bond: 0,
+                claim: Claim.wrap(0),
+                position: Position.wrap(0),
+                clock: Clock.wrap(0)
+            })
+        );
+
+        // Update the subgame rooted at the parent claim.
+        subgames[0].push(claimData.length - 1);
+
+        // Flag that the L2 block number has been challenged.
+        l2BlockNumberChallenged = true;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -670,9 +745,7 @@ contract FaultDisputeGame is IFaultDisputeGame, Clone, ISemver {
         credit[_recipient] = 0;
 
         // Revert if the recipient has no credit to claim.
-        if (recipientCredit == 0) {
-            revert NoCreditToClaim();
-        }
+        if (recipientCredit == 0) revert NoCreditToClaim();
 
         // Try to withdraw the WETH amount so it can be used here.
         WETH.withdraw(_recipient, recipientCredit);
