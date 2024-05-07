@@ -65,8 +65,8 @@ config=$(cat << EOL
   "l1FeeVaultWithdrawalNetwork": 0,
   "sequencerFeeVaultWithdrawalNetwork": 0,
 
-  "gasPriceOracleOverhead": 2100,
-  "gasPriceOracleScalar": 1000000,
+  "gasPriceOracleOverhead": 0,
+  "gasPriceOracleScalar": "0x010000000000000000000000000000000000000000000000000c5fc500000558",
 
   "enableGovernance": true,
   "governanceTokenSymbol": "OP",
@@ -81,7 +81,8 @@ config=$(cat << EOL
   "eip1559DenominatorCanyon": 250,
   "eip1559Elasticity": 6,
 
-  "l2GenesisDeltaTimeOffset": null,
+  "l2GenesisEcotoneTimeOffset": "0x0",
+  "l2GenesisDeltaTimeOffset": "0x0",
   "l2GenesisCanyonTimeOffset": "0x0",
 
   "systemConfigStartBlock": 0,
